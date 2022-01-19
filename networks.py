@@ -18,7 +18,7 @@ class Actor(nn.Module):
         # Initialize layers
         self.lstm1 = nn.LSTM(self.input_dim, hidden_dim, num_layers, batch_first=True)
         self.fc1 = nn.Linear(self.hidden_dim, self.output_dim)
-        
+        self.sigmoid = nn.Sigmoid()
         
         # Set learning rate
         self.lr = lr
@@ -29,8 +29,10 @@ class Actor(nn.Module):
         self.to(self.device)
         
     def forward(self, input, hidden):
-        output, hidden = self.lstm1(input, hidden)
-        output = T.sigmoid(self.fc1(output))
+        X, hidden = self.lstm1(input, hidden)
+        X = self.fc1(X)
+        # sigmoid = T.nn.sigmoid
+        output = self.sigmoid(X)
         return output, hidden
         
     

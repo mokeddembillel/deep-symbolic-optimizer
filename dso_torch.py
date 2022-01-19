@@ -7,7 +7,7 @@ from torch.distributions.categorical import Categorical
 from utilities import Node
 import math
 import scipy.optimize as spo
-
+import matplotlib.pyplot as plt
 class Dso():
     def __init__(self, X, y, network_dims, batch_size, num_layers, lr, tokens_lib, tokens_indices, constraints):
     
@@ -98,8 +98,8 @@ class Dso():
             return left_sum * right_sum, c_values
         
         elif self.tokens_indices[root.data] == '/':
-            if right_sum == 0:
-                print('wrooooong1 #####################################################')
+            # if right_sum == 0:
+                # print('wrooooong1 #####################################################')
             return (left_sum / right_sum, c_values) if np.abs(right_sum) > 0.001 else (1., c_values)
         
         elif self.tokens_indices[root.data] == 'sin':
@@ -107,7 +107,7 @@ class Dso():
         
         elif self.tokens_indices[root.data] == 'exp':
             # print('wrooooong3 #####################################################')
-            return math.exp(left_sum), c_values
+            return (math.exp(left_sum), c_values) if left_sum < 100 else (0.0, c_values)
         
         elif self.tokens_indices[root.data] == 'log':
             # if left_sum <= 0:
@@ -147,7 +147,7 @@ class Dso():
         # print(tau)
         # print(c_occ)
         if c_occ > 0:  
-            c_start = np.zeros(c_occ)        
+            c_start = np.random.randn(c_occ)        
             tau_c = spo.minimize(f, c_start, method='BFGS', tol=1e-6).x
         else:
             tau_c = np.array([])
@@ -185,37 +185,52 @@ class Dso():
     def vaiolate_constraint(self, tau, tau_index, counter, iteration):
         token = self.tokens_indices[tau_index]
         parent, sibling = self.parent_sibling(tau)
-        
+        key = None
         # print('parent: ', parent)
         if parent is not None:
-            
             key = self.tokens_indices[parent.item()]
+            if counter + self.arity(tau_index) - 1 == 0:
+                # print(f'left: {counter + self.arity(tau_index) - 1}')
+                # tokens_values = {v: k for k, v in self.tokens_indices.items()}
+                # keys = list(tokens_values.keys())
+                # indicies = [i if keys[i].startswith('x') else -1 for i in range(len(keys))]
+                # indicies = mydict.keys()[mydict.values().index(16)]
+                indicies = []
+                for key, value in self.tokens_indices.items():
+                    if value.startswith('x'):
+                        indicies.append(key)
+                if not (True in np.in1d(indicies, tau.numpy())):
+                    # print('hoooooooooooooooooo')
+                    key = 'no_x'
         else:
             key = 'no_parent'
         
-        # if iteration > self.max_sequence_length / 2 - 2:
-        #     key = 'max_level'
         
-        # print(f'left: {counter + self.arity(tau_index) - 1} -- right {self.max_sequence_length - iteration - 1}')
-        if counter + self.arity(tau_index) - 1 > self.max_sequence_length - iteration - 1:
-            # print('ppsssssssssssstt')
-            return True
+        # tau[tau.]
+        # if self.max_sequence_length - iteration ==  1 and tau[tau.]:
+            
+        
         
         if key in self.constraints.keys() and token in self.constraints[key]:
             # print('parent: ', key)
             # print('child: ', token)
             return True  
         else:
-            # print('gooooooooooood')
+            # print(f'left: {counter + self.arity(tau_index) - 1} -- right {self.max_sequence_length - iteration - 1}')
+            if counter + self.arity(tau_index) - 1 > self.max_sequence_length - iteration - 1:
+                return True
             return False
         
     def apply_constraints(self, psi, tau, counter, iteration):
+        a = T.ones_like(psi)
         for i in range(len(self.tokens_indices)):
             if self.vaiolate_constraint(tau, i, counter, iteration):
-                psi[i] = 0.0
+                # psi[i] = T.multiply(psi[i], T.tensor([0.0])) 
                 # print(psi)
-                
-        psi = psi / psi.sum()
+                a[i] = 0.0
+                pass
+        psi = T.multiply(psi, a)       
+        psi = T.divide(psi, psi.sum())
         # print('psi: ', psi)
         return psi
     
@@ -237,7 +252,9 @@ class Dso():
             # Emit probabilities; update state
             # print(parent_sibling)
             psi, h = self.actor.forward(parent_sibling, h)
+            # psi = psi
             psi = psi.squeeze()
+            
             # Adjust probabilities
             # print(psi)
             psi = self.apply_constraints(psi, tau, counter, i)
@@ -275,25 +292,28 @@ class Dso():
             else:
                 parent_sibling = T.cat((F.one_hot(parent.type(T.int64), item_length).view(1, 1, -1), F.one_hot(sibling.type(T.int64), item_length).view(1, 1, -1)), dim=-1).type(T.float32)
             # print(counter)
+        # return tau.type(T.int64), tau_prob, tau_entropy
         return None, None, None
         
     
     # See if the resulted expressions are valid
     
+    
     def train(self, batch):
-        # Sample N expressions
+        ### Sample N expressions
         Tau = T.empty((0, self.max_sequence_length), dtype=T.int32)
         Tau_probs = T.empty((0, 1))
         Tau_entropy = T.empty((0, 1))
         for i in range(self.n_expressions):
             tau, tau_probs, tau_entropy = self.sample_expression()
             # print(tau)
-            tokens = []
-            for i in tau:  
-                if int(i) in self.tokens_indices.keys():
-                    tokens.append(self.tokens_indices[int(i)])
-            print(tokens)
+            # tokens = []
+            # for i in tau:  
+            #     if int(i) in self.tokens_indices.keys():
+            #         tokens.append(self.tokens_indices[int(i)])
+            # print(tokens)
             
+
             Tau = T.cat((Tau, tau.unsqueeze(0)), dim=0)
             Tau_probs = T.cat((Tau_probs, tau_probs.unsqueeze(0)), dim=0)
             Tau_entropy = T.cat((Tau_entropy, tau_entropy.unsqueeze(0)), dim=0)
@@ -303,14 +323,14 @@ class Dso():
         Tau_roots = []
         Tau_constants = []
         for i in range(self.n_expressions):
-            # Build tree
+            ### Build tree
             tau = Tau[i][Tau[i]!=-1]
             # print(tau)
             Tau_roots.append(self.build_tree(tau))
-            # Optimize constant with respect to the reward function
+            ### Optimize constant with respect to the reward function
             Tau_constants.append(self.optimize_constants(tau, Tau_roots[i]))
         
-        # Compute rewards
+        ### Compute rewards
         # -- compute y_pred from x
         y_pred = []
         for i in range(self.n_expressions):
@@ -324,32 +344,66 @@ class Dso():
             a  = self.compute_rewards(T.tensor(y_pred[i]), T.tensor(self.y)).unsqueeze(0)
             rewards = T.cat((rewards, a), dim=0)
             
-        # Compute rewards threshold 
+        ### Compute rewards threshold 
         reward_threshold = T.quantile(rewards, (1 - self.epsilon), dim=0, keepdim=True)
         
-        # Select subset of expressions above threshold and their corresponding subset of rewards
+        ### Select subset of expressions above threshold and their corresponding subset of rewards
         Tau_best = T.empty(0, self.max_sequence_length)
         rewards_best = T.empty(0)
+        Tau_best_constants = []
         for i in range(self.n_expressions):
-            if rewards[i] > reward_threshold:
+            if rewards[i] >= reward_threshold:
                 rewards_best = T.cat((rewards_best, T.tensor([rewards[i]])), dim=0)
                 Tau_best = T.cat((Tau_best, Tau[i].unsqueeze(0)), dim=0) 
+                Tau_best_constants.append(Tau_constants[i])
         
-        # Compute risk-seeking policy loss
-        loss_g1 = T.mean(T.multiply((rewards_best - reward_threshold), T.log(Tau_probs)))
-        # Compute entropy loss
+        ### Compute risk-seeking policy loss
+        # g1 = T.autograd.grad(T.sum(T.log(Tau_probs)), self.actor.parameters(), create_graph=True), 
+        a = (rewards_best - reward_threshold).detach()
+        loss_g1 = T.sum(T.multiply(a, T.log(Tau_probs)))
+        # print('reward: ', loss_g1.item())
+        ### Compute entropy loss
         loss_g2 = T.mean(T.multiply(T.tensor(self._lambda), Tau_entropy))
+        # print(loss_g2)
         # Compute loss
         loss = T.multiply((loss_g1 + loss_g2), -1) 
-        # Update the actor
+        # loss = T.multiply((loss_g1), -1) 
+        # loss = loss_g1
+        print('loss: ', loss.item())
+        
+        ### Update the actor
         T.autograd.set_detect_anomaly(True)
         self.actor.optimizer.zero_grad()
-        T.autograd.backward(loss)
+        loss.backward()
         self.actor.optimizer.step()
-        # Update best expression
-        self.best_expression_reward = T.max(rewards_best)
-        self.best_expression = Tau_best[T.argmax(rewards_best)]
-        self.best_expression_constants = Tau_constants[T.argmax(rewards_best)]
+        ### Update best expression
+        
+        self.best_expression_reward = T.max(rewards_best, dim=0)
+        self.best_expression = Tau_best[self.best_expression_reward.indices.item()]
+        self.best_expression_constants = Tau_best_constants[self.best_expression_reward.indices.item()]
+        # print(self.best_expression)
+        tokens = []
+        for i in self.best_expression:  
+            if int(i) in self.tokens_indices.keys():
+                tokens.append(self.tokens_indices[int(i)])
+        print('Expression: ', tokens)
+        print('Constants: ', self.best_expression_constants)
+        print('###############################################################')
+
+        
+        best_expression_root = self.build_tree(self.best_expression)
+        y_pred = []
+        for i in range(self.X.shape[0]):
+            y_pred.append(self.evaluate_expression_tree(best_expression_root, self.X[i], self.best_expression_constants)[0])
+        
+        plt.xlabel('X')
+        plt.ylabel('Y')
+        plt.plot(self.X.squeeze(), self.y)
+        plt.plot(self.X.squeeze(), np.array(y_pred))
+        plt.show()
+        
+        
+        
         
         
         
